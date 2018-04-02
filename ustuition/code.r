@@ -9,6 +9,10 @@ example_plot <- cost_df %>%
     ggplot(aes(x = fct_reorder(State, tuition), y = tuition)) +
     geom_bar(stat = "identity") + 
     coord_flip() +
-    labs(x = "State", y = "Tuition ($)")
+    labs(x = "State", y = "Tuition ($)",
+         title = "College tuition costs in the USA (2015-16",
+         caption = "\nDataSource: https://trends.collegeboard.org/ | Graphic: @thomas_mock")
+
+example_plot
 
 ggsave("example_plot.png", example_plot, height = 12, width = 6, units = "in", dpi = 600)
