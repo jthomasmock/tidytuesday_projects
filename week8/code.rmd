@@ -1,0 +1,201 @@
+---
+title: "Honey Production"
+author: "Tom"
+date: "May 18, 2018"
+output: html_document
+---
+
+# Load libraries and Column metadata
+
+```{r, message=F, warning=F, error=F}
+library(tidyverse)
+library(here)
+library(janitor)
+library(ggbeeswarm)
+```
+* state = abbreviation (all caps)
+* Producing Colonies  = producing colonies in 1000s
+* Yield per colony = pound of honey per colony
+* Production = pounds of honey in 1000s
+* Stocks = stocks held by producers in 1000s of pounds
+* Average = price per pound of honey in cents
+* Value of production = dollars in 1000s
+
+## See what the columns look like
+We can see that the data is fairly well organized, but the column names are spread across 3 or more rows and contain units/other metadata. We'll take care of that with some `tidyverse` cleaning!
+
+```{r}
+# check what the columns represent
+readr::read_csv(here("week9/honey-production/honeyraw_1998to2002.csv"), skip = 4) %>% 
+    .[1:10,] %>% 
+    select(-`1`, -`h`)
+```
+
+## Dealing with State Abbreviations
+
+I originally pasted a tribble here with all the state names/abbreviations (using Miles McBain's `datapasta` package addin) but realized R has a built in name/abbreviations for states w/ `state.name` and `state.abb`.
+```{r}
+# state_abbreviations and names built in
+state.abb
+state.name
+
+# pasted dataframe w/ abbreviations
+state_names <- tibble::tribble(
+              ~state, ~abbreviation,
+           "ALABAMA",          "AL",
+            "ALASKA",          "AK",
+           "ARIZONA",          "AZ",
+          "ARKANSAS",          "AR",
+        "CALIFORNIA",          "CA",
+          "COLORADO",          "CO",
+       "CONNECTICUT",          "CT",
+          "DELAWARE",          "DE",
+           "FLORIDA",          "FL",
+           "GEORGIA",          "GA",
+            "HAWAII",          "HI",
+             "IDAHO",          "ID",
+          "ILLINOIS",          "IL",
+           "INDIANA",          "IN",
+              "IOWA",          "IA",
+            "KANSAS",          "KS",
+          "KENTUCKY",          "KY",
+         "LOUISIANA",          "LA",
+             "MAINE",          "ME",
+          "MARYLAND",          "MD",
+     "MASSACHUSETTS",          "MA",
+          "MICHIGAN",          "MI",
+         "MINNESOTA",          "MN",
+       "MISSISSIPPI",          "MS",
+          "MISSOURI",          "MO",
+           "MONTANA",          "MT",
+          "NEBRASKA",          "NE",
+            "NEVADA",          "NV",
+     "NEW HAMPSHIRE",          "NH",
+        "NEW JERSEY",          "NJ",
+        "NEW MEXICO",          "NM",
+          "NEW YORK",          "NY",
+    "NORTH CAROLINA",          "NC",
+      "NORTH DAKOTA",          "ND",
+              "OHIO",          "OH",
+          "OKLAHOMA",          "OK",
+            "OREGON",          "OR",
+      "PENNSYLVANIA",          "PA",
+      "RHODE ISLAND",          "RI",
+    "SOUTH CAROLINA",          "SC",
+      "SOUTH DAKOTA",          "SD",
+         "TENNESSEE",          "TN",
+             "TEXAS",          "TX",
+              "UTAH",          "UT",
+           "VERMONT",          "VT",
+          "VIRGINIA",          "VA",
+        "WASHINGTON",          "WA",
+     "WEST VIRGINIA",          "WV",
+         "WISCONSIN",          "WI",
+           "WYOMING",          "WY"
+    )
+```
+
+## Read in the data
+
+We're reading in each of the dataframes and cleaning things up with `janitor` and some `tidyverse` calls.
+```{r, warning = F, message = F}
+honey98_02 <- readr::read_csv(here("week9/honey-production/honeyraw_1998to2002.csv"), skip = 8) %>% 
+    clean_names() %>% 
+    select(-x1, -u) %>%
+    rename(state = x3) %>% 
+    filter(state %in% state.abb)
+    
+honey03_07 <- readr::read_csv(here("week9/honey-production/honeyraw_2003to2007.csv"), skip = 80) %>% 
+    clean_names() %>% 
+    select(-x1, -u) %>% 
+    rename(state = x3) %>% 
+    filter(state %in% state.abb)
+
+honey08_12 <- readr::read_csv(here("week9/honey-production/honeyraw_2008to2012.csv"), skip = 71) %>% 
+    clean_names() %>% 
+    select(-x1, -u) %>%
+    mutate(state = state.abb[match(x3, state.name)]) %>% 
+    select(-x3) %>% 
+    filter(state %in% state.abb)
+```
+
+## Merge dataframes
+
+Now that we have the somewhat clean dataframes we will merge via bind_rows to form one dataframe and then fully tidy and assign years based on the start and stop for each set of honey production. We know that the first state is always AL and the last state is always WY, so we can build up a logical set of vectors to repeat the years across.
+```{r, warning=F, message=F}
+clean_df <- honey98_02 %>% 
+    bind_rows(honey03_07, honey08_12)
+
+honey_df <- clean_df %>% 
+    rename(bee_colonies = x1_000, 
+           honey_per_colony = pounds,
+           honey_produced = x1_000_pounds, 
+           honey_stock = x1_000_pounds_1, 
+           honey_price = cents, 
+           honey_production_value = x1_000_dollars) %>% 
+    mutate_at(2:7, as.numeric) %>%
+    mutate(bee_colonies = bee_colonies * 1000,
+           honey_produced = honey_produced * 1000,
+           honey_stock = honey_stock * 1000,
+           honey_price = honey_price/100,
+           honey_production_value = honey_production_value * 1000)
+
+ystart <- c(grep("AL", honey_df$state))
+yend <- c(grep("WY", honey_df$state))
+years <- 1998:2012
+ynums <- yend - ystart + 1
+honey_df$year <- rep(years, ynums)
+
+# look at df
+glimpse(honey_df)
+
+```
+Just a quick sanity check to see how many states were recorded per year. Some states were missing from my initial lookthrough the data w/ `View`.
+
+```{r}
+honey_df %>% 
+    group_by(year) %>% count()
+```
+## Build out the plots
+
+According to the article, Beekeepers are shifting from using bees primarily in honey production to selling colonies and pollination, this is reflected in the number of colonies staying fairly stable while the honey production/colony is decreasing across the timeframe.
+```{r, fig.width=8, fig.height=8, dpi = 600}
+(bee_colonies <- honey_df %>% 
+    ggplot(aes(x = year, y = bee_colonies)) +
+    geom_beeswarm(shape = 21, color = "black", fill = "yellow", size = 2) +
+    stat_summary(fun.y = "median", colour = "black", size = 4, geom = "point", alpha = 0.5) +
+    stat_summary(fun.y = "median", colour = "black", size = 1, geom = "line", alpha = 0.5) +
+    labs(x = "\nYear",
+         y = "Number of Colonies\n",
+         title = "Beekeepers are shifting from honey production to pollination",
+         subtitle = "The number of colonies is relatively stable over time",
+         caption = "\nData: USDA-NASS | Graphic: @thomas_mock") +
+    ggthemes::theme_fivethirtyeight() +
+    theme(axis.title = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold")) +
+        scale_y_continuous(breaks = seq(0, 500000, 100000), labels = c("0", "100,000", "200,000", "300,000", "400,000", "500,000")) +
+     scale_x_continuous(breaks = seq(1998, 2012, 2)))
+
+ggsave("colony_number.png", bee_colonies, height = 8, width = 8, units = "in", dpi = 800)
+
+(honey_yield_colony <- honey_df %>% 
+    ggplot(aes(x = year, y = honey_per_colony)) +
+    geom_beeswarm(shape = 21, color = "black", fill = "yellow", size = 2) +
+    stat_summary(fun.y = "median", colour = "black", size = 4, geom = "point", alpha = 0.5) +
+    stat_summary(fun.y = "median", colour = "black", size = 1, geom = "line", alpha = 0.5) +
+    
+    labs(x = "\nYear",
+         y = "Honey yield per colony (lbs)\n",
+         title = "Beekeepers are shifting from honey production to pollination",
+         subtitle = "Beekeepers are collecting less honey per colony",
+         caption = "\nData: USDA-NASS | Graphic: @thomas_mock") +
+    ggthemes::theme_fivethirtyeight() +
+    theme(axis.title = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold")) +
+    scale_x_continuous(breaks = seq(1998, 2012, 2)) +
+    scale_y_continuous(breaks = seq(25, 150, 25)))
+
+ggsave("honey_per_colony.png", honey_yield_colony, height = 8, width = 8, units = "in", dpi = 800)
+```
+
+
