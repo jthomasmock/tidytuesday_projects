@@ -1,0 +1,283 @@
+---
+title: "Federal Budget"
+author: "Thomas Mock"
+date: "2/12/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(ggrepel)
+library(patchwork)
+library(tomtom)
+```
+
+### Load Data
+
+```{r}
+
+df_spending <- read_csv("fed_r_d_spending.csv")
+df_energy <- read_csv("energy_spending.csv")
+df_climate <- read_csv("climate_spending.csv")
+```
+
+```{r}
+df_spending %>% 
+  filter(department %in% c("DOE", "NASA", "NIH")) %>% 
+  group_by(year, department) %>% 
+  summarize(percent_gdp = rd_budget/gdp,
+            percent_budget = rd_budget/total_outlays) %>%
+  ungroup() %>% 
+  mutate(decade = 10 * (year %/% 10)) %>% 
+  ggplot(aes(x = year, y = percent_budget, color = department)) +
+  geom_line() +
+  tomtom::theme_tom() +
+  scale_y_continuous(labels = scales::percent_format())
+```
+
+```{r}
+science_agencies <- c("EPA", "NSF", "DOE", "NASA", "NIH", "HHS")
+
+df_spending %>% 
+  filter(rd_budget != 0, department != "DOD") %>% 
+  group_by(year, department) %>% 
+  summarize(percent_gdp = rd_budget/gdp,
+            percent_budget = rd_budget/total_outlays) %>%
+  ungroup() %>% 
+  mutate(decade = 10 * (year %/% 10),
+         department = factor(department),
+         department = fct_reorder(department, percent_budget, desc = TRUE)) %>% 
+  ggplot(aes(x = department, y = decade, color = department)) +
+  geom_line(color = "grey") +
+  geom_point(aes(size = percent_budget)) +
+  
+  coord_flip() +
+  theme_minimal()
+```
+
+```{r, fig.height = 16, fig.width = 8, units = "in"}
+df_percent <- df_spending %>% 
+  filter(rd_budget != 0) %>% 
+  group_by(year, department) %>% 
+  summarize(percent_gdp = rd_budget/gdp,
+            percent_budget = rd_budget/total_outlays) %>%
+  ungroup() %>% 
+  mutate(decade = 10 * (year %/% 10),
+         department = factor(department),
+         department = fct_reorder(department, percent_budget, desc = FALSE))
+
+df_percent_range <- df_percent %>% 
+  group_by(department) %>% 
+  summarize(quant25 = quantile(percent_budget, 0.25),
+            quant75 = quantile(percent_budget, 0.75)) %>% 
+  right_join(df_percent, by = c("department"))
+
+spending_percent <- df_percent %>% 
+  ggplot(aes(x = year, y = percent_budget), color = "black") +
+  geom_ribbon(data = df_percent_range,
+              aes(ymin = quant25, ymax = quant75),
+            fill = "grey", alpha = 0.5) +
+  geom_line() +
+  geom_point(data = df_percent %>%
+               group_by(department) %>%
+               filter(year %in% c(min(year), max(year)))) +
+  geom_point(data = df_percent %>%
+               group_by(department) %>%
+               filter(year == decade), color = "red") +
+  
+  facet_wrap(~fct_rev(department), ncol = 2, scales = "free_y") +
+  tomtom::theme_tom() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.01)) +
+  labs(x = "\nFiscal Year",
+       y = "Percent of Federal Budget",
+       title = "... but Federal R&D spending as a percent of the budget is declining",
+       subtitle = "Grey ribbon = quantile-25 & quantile-75\nRed dot = decade marker") +
+  theme(strip.text = element_text(face = "bold"))
+
+```
+### Scaled Data
+
+The goal of this is to get rd_budget in millions of dollars and arrange by rd_budget.
+
+```{r}
+scaled_data <- df_spending %>% 
+  filter(rd_budget != 0) %>% 
+  #filter( & department != "DOD") %>% 
+  mutate(decade = 10 * (year %/% 10),
+         rd_budget = rd_budget/1e9,
+         department = factor(department),
+         department = fct_reorder(department, rd_budget, desc = FALSE))
+```
+
+This is for getting the min_year, max_year, and the corresponding department.
+
+```{r}
+# range_df <- scaled_data %>% 
+#   filter(rd_budget != 0) %>% 
+#   #filter(department != "DOD") %>% 
+#   group_by(department) %>% 
+#   arrange(desc(rd_budget)) %>% 
+#   slice(1) %>% 
+#   select(max_year = year, max_rd_budget = rd_budget) %>% 
+#   left_join(
+#     (scaled_data %>% 
+#   filter(rd_budget != 0) %>%
+#     #filter(department != "DOD") %>% 
+#   group_by(department) %>% 
+#   arrange(rd_budget) %>% 
+#   slice(1) %>% 
+#   select(min_year = year, min_rd_budget = rd_budget)), by = "department")
+
+range_df <- scaled_data %>% 
+  filter(rd_budget != 0) %>% 
+  #filter(department != "DOD") %>% 
+  group_by(department) %>% 
+  summarize(quant25 = quantile(rd_budget, 0.25),
+            quant75 = quantile(rd_budget, 0.75)) %>% 
+  right_join(scaled_data, by = c("department"))
+
+range_df <- range_df %>% ungroup()
+```
+
+
+```{r}
+scaled_data %>% 
+  group_by(department) %>% 
+  arrange(year, .by_group = TRUE) %>%
+  mutate(pct_change = (rd_budget/lag(rd_budget) - 1) * 100) %>% 
+  ggplot(aes(x = year, y = pct_change, color = department)) +
+  geom_step() + 
+  facet_grid(department ~ ., scales = "free_y")
+```
+
+```{r, fig.height = 16, fig.width = 8, units = "in"}
+scaled_data %>% 
+   #filter(department == "DOD") %>% 
+  ggplot(aes(x = year, y = rd_budget), color = "black") +
+  geom_rect(inherit.aes = FALSE,
+            data = range_df,
+            aes(x = NULL, y = NULL,
+                xmin = rep(1980, 14),
+                xmax = rep(2015, 14),
+                ymin = 1.1 * min_rd_budget,
+                ymax = 0.9 * max_rd_budget),
+            color = "grey", alpha = 0.2) +
+  geom_line() +
+  # geom_point(data = scaled_data %>% 
+  #              group_by(department) %>% 
+  #              filter(year %in% c(min(year), max(year)))) +
+  
+  facet_wrap(~department, ncol = 1, scales = "free_y") +
+  theme_classic()
+```
+
+```{r, fig.height=5, fig.width=16, units ="in"}
+scaled_data %>% 
+  #filter(department != "DOD") %>% 
+  mutate(rd_budget = round(rd_budget, 1)) %>% 
+  ggplot(aes(x = year, y = rd_budget), color = "black") +
+  geom_ribbon(data = range_df,
+              aes(ymin = quant25, ymax = quant75),
+            fill = "grey", alpha = 0.5) +
+  geom_line() +
+  geom_point(data = scaled_data %>%
+               group_by(department) %>%
+               filter(year %in% c(min(year), max(year)))) +
+  geom_point(data = scaled_data %>%
+               group_by(department) %>%
+               filter(year == decade), color = "red") +
+  facet_wrap(~fct_rev(department), ncol = 7, scales = "free_y") +
+  tomtom::theme_tom() +
+  scale_y_continuous() +
+  labs(x = "\nFiscal Year",
+       y = "Inflation Adjusted Budget (Millions)\n",
+       title = "Federal Research and Development spending",
+       subtitle = "Grey ribbon = quantile-25 & quantile-75\nRed dot = decade marker") +
+  theme(strip.text = element_text(face = "bold"))
+```
+
+```{r, fig.height=16, fig.width=8}
+spending_dollars <- scaled_data %>% 
+  #filter(department != "DOD") %>% 
+  ggplot(aes(x = year, y = rd_budget), color = "black") +
+  geom_ribbon(data = range_df,
+              aes(ymin = quant25, ymax = quant75),
+            fill = "grey", alpha = 0.5) +
+  geom_line() +
+  geom_point(data = scaled_data %>%
+               group_by(department) %>%
+               filter(year %in% c(min(year), max(year)))) +
+  geom_point(data = scaled_data %>%
+               group_by(department) %>%
+               filter(year == decade), color = "red") +
+  facet_wrap(~fct_rev(department), ncol = 2, scales = "free_y") +
+  tomtom::theme_tom() +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  labs(x = "\nFiscal Year",
+       y = "Inflation Adjusted Budget (Billions)\n",
+       title = "Federal Research and Development spending is generally increasing",
+       subtitle = "Grey ribbon = quantile-25 & quantile-75\nRed dot = decade") +
+  theme(strip.text = element_text(face = "bold"))
+```
+
+
+
+
+
+```{r}
+scaled_data %>% 
+    ggplot(aes(x = year, y = rd_budget), color = "black") +
+    geom_line() +
+    geom_point(data = (scaled_data %>% 
+                         group_by(department)
+                       filter(year %in% c(min(year), max(year))))) +
+    facet_wrap(~department, ncol = 1, scales = "free_y") +
+    theme_classic() +
+    NULL
+
+ggsave("tom_plot.png", tom_plot, height = 16, width = 8, units = "in", dpi = 700)
+
+
+distinct(df, department)
+
+distinct(df_climate, department)
+
+climate_full <- left_join(df_climate, 
+          select(df, -department, -rd_budget) %>% 
+            filter(year >= 2000) %>% 
+            distinct(year, .keep_all = TRUE), 
+          by = c("year"))
+
+
+climate_full %>% 
+  mutate(decade = 10 * (year %/% 10),
+         gcc_spending = gcc_spending/1e6,
+         department = fct_reorder(department, gcc_spending, desc = TRUE)) %>% 
+  ggplot(aes(x = year, y = gcc_spending, color = fct_reorder(department, gcc_spending, desc = TRUE))) +
+  geom_line() +
+  scale_y_continuous(trans = "log10", limits = c(1, 2000)) +
+  #tomtom::theme_tom() +
+  facet_wrap(~department, nrow = 1)
+
+scales::per
+```
+
+
+```{r}
+final_plot <- spending_dollars + spending_percent
+```
+
+```{r}
+ggsave("rd_spending.png", final_plot, height = 16, width = 16, units = "in", dpi = "retina")
+ggsave("rd_dollars.png", spending_dollars, height = 16, width = 8, units = "in", dpi = "retina")
+ggsave("rd_percent.png", spending_percent, height = 16, width = 8, units = "in", dpi = "retina")
+```
+
+```{r}
+final_plot
+```
+
