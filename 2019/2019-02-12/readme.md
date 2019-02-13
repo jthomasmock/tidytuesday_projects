@@ -17,5 +17,5 @@ Wanted to recreate some sparklines-esque plots in `ggplot2` - I thought the free
 
 ### Final outputs
 
-![](rd_dollars.png)
-![](rd_percent.png)
+<img src="rd_dollars.png" width="500">
+<img src="rd_percent.png" width="500">
