@@ -4,6 +4,11 @@ My try for this week was a [bullet graph](https://en.wikipedia.org/wiki/Bullet_g
 
 Code focused on getting the top cars in highway fuel efficiency from a subset of 8 major manufacturers. Found that some hybrids are more fuel efficient in the city than on the highway, which is opposite of traditional fuel vehicles.
 
+Breakdowns of the qualitative ranges:
+* Bad = below median (50% quantile or below)
+* Good = median up to 95% quantile
+* Great = >95% quantile
+
 ![](car_plot.png)
 
 ```
