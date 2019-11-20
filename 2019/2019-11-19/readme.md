@@ -2,7 +2,7 @@
 
 The mighty Kakapo was defeated by a simple penguin.
 
-![](2019/2019-11-19/kakapo.png)
+![](kakapo.png)
 
 
 ```{r}
