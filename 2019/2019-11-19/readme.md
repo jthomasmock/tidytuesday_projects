@@ -1,6 +1,6 @@
 # NZ Birds
 
-The mighty Kakapo was defeated by a simple penguin.
+The mighty Kākāpō was defeated by a simple penguin.
 
 ![](kakapo.png)
 
